@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Askable — Make any video askable.</title>
+<style>
+  /* ---------- reset ---------- */
+  *, *::before, *::after { box-sizing: border-box; }
+  * { margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, svg { display: block; max-width: 100%; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+  /* ---------- tokens ----------
+     Deliberately single-theme: this is a presentation surface, styled after a
+     video editor's screening room. It reads the same on any judge's machine. */
+  :root {
+    --ground:  #0B0E0D;
+    --panel:   #131917;
+    --raised:  #1B2220;
+    --ink:     #EDF2ED;
+    --muted:   #8B9891;
+    --faint:   #5C6863;
+    --rule:    #29312E;
+    --capture: #E8934A;   /* ingestion path — Bright Data, Speechmatics */
+    --ask:     #4FC4B8;   /* query path — embeddings, pgvector, chat */
+    --alert:   #E4705C;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --serif: ui-serif, "Iowan Old Style", Charter, "Palatino Linotype", Georgia, serif;
+
+    --bar: 62px;
+  }
+
+  html, body { height: 100%; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    overflow: hidden;
+  }
+
+  /* ---------- deck mechanics ---------- */
+  .deck {
+    height: 100vh;
+    height: 100svh;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+  }
+  .deck::-webkit-scrollbar { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .deck { scroll-behavior: auto; }
+    * { animation: none !important; transition: none !important; }
+  }
+
+  .slide {
+    min-height: 100vh;
+    min-height: 100svh;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 34px;
+    padding: 72px 56px calc(var(--bar) + 40px);
+    position: relative;
+  }
+  .inner { width: 100%; max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
+
+  .slug {
+    position: absolute;
+    top: 34px; left: 56px; right: 56px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  /* ---------- type ---------- */
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--capture);
+  }
+  .kicker.ask { color: var(--ask); }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(38px, 6.4vw, 82px);
+    line-height: 1.02;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--mono);
+    font-size: clamp(27px, 3.7vw, 46px);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+  .thesis {
+    font-family: var(--serif);
+    font-size: clamp(19px, 2.3vw, 27px);
+    font-style: italic;
+    line-height: 1.42;
+    color: var(--ink);
+    max-width: 30ch;
+    text-wrap: balance;
+  }
+  .lede { font-size: clamp(16px, 1.55vw, 20px); color: var(--muted); max-width: 62ch; }
+  .lede em { color: var(--ink); font-style: normal; font-weight: 600; }
+  .fine { font-family: var(--mono); font-size: 12.5px; color: var(--faint); letter-spacing: 0.02em; }
+  .mono { font-family: var(--mono); }
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--raised);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  /* ---------- cold open ----------
+     The first frame a judge sees, and the only one with no number and no
+     supporting text: one line sets the expectation, the next breaks it. */
+  .cold .inner { gap: 30px; }
+  .cold p {
+    font-family: var(--mono);
+    font-size: clamp(29px, 5.1vw, 64px);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+  .cold .setup { color: var(--faint); }
+  .cold .turn  { color: var(--ink); }
+  .cold .turn em { font-style: normal; color: var(--alert); }
+  .cold kbd {
+    font-family: var(--mono);
+    font-size: 0.84em;
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    padding: 0.04em 0.3em 0.1em;
+  }
+  .cold .turn kbd {
+    border-color: color-mix(in srgb, var(--alert) 38%, transparent);
+    background: color-mix(in srgb, var(--alert) 9%, var(--panel));
+  }
+  /* The search that never resolves. Killed by the reduced-motion rule above. */
+  .caret {
+    display: inline-block;
+    width: 0.46ch;
+    height: 0.82em;
+    margin-left: 0.14em;
+    vertical-align: -0.04em;
+    background: var(--ask);
+    animation: blink 1.15s steps(1, end) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- title slide ---------- */
+  .title-grid { display: flex; flex-direction: column; gap: 40px; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .badge {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 6px 14px;
+  }
+  .badge.hot { color: var(--capture); border-color: color-mix(in srgb, var(--capture) 45%, transparent); }
+
+  /* ---------- numbered steps ---------- */
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+  .step { background: var(--panel); padding: 28px 26px 30px; display: flex; flex-direction: column; gap: 12px; }
+  .step .tc { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; color: var(--capture); }
+  .step h3 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+  .step p { font-size: 15px; color: var(--muted); }
+
+  /* ---------- problem list ---------- */
+  .beats { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--rule); }
+  .beat { display: grid; grid-template-columns: 84px 1fr; gap: 26px; padding: 22px 4px; border-bottom: 1px solid var(--rule); align-items: baseline; }
+  .beat .n { font-family: var(--mono); font-size: 12px; color: var(--faint); letter-spacing: 0.1em; }
+  .beat p { font-size: clamp(16px, 1.7vw, 20px); color: var(--muted); max-width: 58ch; }
+  .beat p strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- mock chat ---------- */
+  .mock {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 26px;
+    align-items: start;
+  }
+  .window { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .window-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--raised);
+    font-family: var(--mono); font-size: 11px; color: var(--faint); letter-spacing: 0.08em;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rule); }
+  .window-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .bubble { border-radius: 5px; padding: 13px 15px; font-size: 14.5px; line-height: 1.5; }
+  .bubble.user { background: var(--raised); align-self: flex-end; max-width: 88%; }
+  .bubble.bot { background: transparent; border: 1px solid var(--rule); color: var(--muted); }
+  .bubble.bot strong { color: var(--ink); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip {
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--ask);
+    border: 1px solid color-mix(in srgb, var(--ask) 40%, transparent);
+    border-radius: 3px; padding: 4px 9px;
+  }
+  .mock-note { display: flex; flex-direction: column; gap: 18px; padding-top: 8px; }
+  .mock-note .thesis { max-width: 26ch; }
+
+  /* ---------- figures ---------- */
+  .figwrap { width: 100%; overflow-x: auto; }
+  .figwrap svg { width: 100%; height: auto; margin: 0 auto; min-width: 620px; }
+  .fig-topology svg { max-width: min(100%, 118svh); }
+  .fig-routes   svg { max-width: min(100%, 162svh); }
+  .fig-branch   svg { max-width: min(100%, 224svh); }
+  .legend { display: flex; flex-wrap: wrap; gap: 22px; font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .sw { width: 20px; height: 0; border-top: 2px solid; }
+  .sw.capture { border-color: var(--capture); }
+  .sw.ask { border-color: var(--ask); }
+  .sw.dash { border-top-style: dashed; border-color: var(--muted); }
+
+  /* ---------- stack / cards ---------- */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+  .card { background: var(--panel); padding: 24px; display: flex; flex-direction: column; gap: 9px; }
+  .card h4 { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--capture); letter-spacing: 0.01em; }
+  .card.ask h4 { color: var(--ask); }
+  .card p { font-size: 14.5px; color: var(--muted); }
+  .card p strong { color: var(--ink); font-weight: 600; }
+
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 44px; align-items: start; }
+
+  /* Audience list. Every piece of an item must be its own element: a grid
+     container turns each child into a grid item, so a bare text node after
+     <strong> became a third item and got laid out in the 18px marker column,
+     one word per line. Hence .who / .job rather than inline markup. */
+  .list { display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
+  .list li {
+    list-style: none;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    column-gap: 13px;
+    padding: 15px 2px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .list li::before {
+    content: "→";
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--faint);
+  }
+  .list .who { font-size: 15.5px; font-weight: 600; color: var(--ink); }
+  .list .job { grid-column: 2; font-size: 15px; color: var(--muted); text-wrap: pretty; }
+
+  .aside { display: flex; flex-direction: column; gap: 22px; }
+
+  /* ---------- closing ---------- */
+  .cta {
+    display: inline-flex; align-items: center; gap: 12px;
+    font-family: var(--mono); font-size: 15px;
+    border: 1px solid color-mix(in srgb, var(--ask) 50%, transparent);
+    color: var(--ask);
+    border-radius: 4px; padding: 14px 22px;
+    text-decoration: none;
+    transition: background 140ms ease;
+  }
+  .cta:hover { background: color-mix(in srgb, var(--ask) 12%, transparent); }
+  .cta.secondary { color: var(--muted); border-color: var(--rule); }
+  .cta.secondary:hover { background: var(--raised); }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 14px; }
+
+  /* ---------- scrubber ---------- */
+  .scrub {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: var(--bar);
+    background: color-mix(in srgb, var(--ground) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--rule);
+    display: flex; align-items: center; gap: 20px;
+    padding: 0 24px;
+    z-index: 20;
+  }
+  .scrub-label { font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: 0.09em; white-space: nowrap; min-width: 132px; }
+  .scrub-label b { color: var(--ink); font-weight: 600; }
+  .ticks { display: flex; flex: 1; gap: 4px; }
+  .tick { flex: 1; height: 22px; display: flex; align-items: center; padding: 0; }
+  .tick::after { content: ""; display: block; width: 100%; height: 2px; background: var(--rule); transition: background 160ms ease, height 160ms ease; }
+  .tick[aria-current="true"]::after { background: var(--capture); height: 4px; }
+  .tick:hover::after { background: var(--muted); }
+  .tick:focus-visible { outline: 2px solid var(--ask); outline-offset: 3px; border-radius: 2px; }
+  .nav { display: flex; gap: 6px; }
+  .nav button {
+    font-family: var(--mono); font-size: 15px; line-height: 1;
+    color: var(--muted);
+    border: 1px solid var(--rule); border-radius: 4px;
+    width: 34px; height: 30px;
+    display: grid; place-items: center;
+    transition: color 140ms ease, border-color 140ms ease;
+  }
+  .nav button:hover { color: var(--ink); border-color: var(--muted); }
+  .nav button:focus-visible { outline: 2px solid var(--ask); outline-offset: 2px; }
+
+  a:focus-visible { outline: 2px solid var(--ask); outline-offset: 3px; }
+
+  /* screen-scoped on purpose: Chrome lays print out in a viewport far narrower
+     than the page and scales it up, so an unscoped max-width breakpoint matches
+     on paper too and collapses every two-column slide. */
+  @media screen and (max-width: 860px) {
+    .slide { padding: 82px 24px calc(var(--bar) + 32px); }
+    .slug { left: 24px; right: 24px; }
+    .mock, .split { grid-template-columns: 1fr; }
+    .scrub-label { min-width: 0; }
+    .beat { grid-template-columns: 56px 1fr; gap: 14px; }
+  }
+
+  /* ---------- print / PDF ----------
+     One slide per page at 16:9. The deck is a scroll-snap viewport on screen,
+     which prints as a single clipped page, so height and overflow have to be
+     handed back to the paginator. Sizes stay in px because @page is fixed:
+     there is no viewport to be relative to. */
+  @page { size: 1280px 720px; margin: 0; }
+
+  @media print {
+    html, body {
+      height: auto;
+      overflow: visible;
+      background: var(--ground);
+      /* Without this the dark ground is dropped and the light ink vanishes. */
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .deck { height: auto; overflow: visible; scroll-snap-type: none; }
+    .slide {
+      min-height: 0;
+      height: 720px;
+      padding: 64px 56px;
+      break-after: page;
+      break-inside: avoid;
+      scroll-snap-align: none;
+    }
+    .slide:last-child { break-after: auto; }
+    .slug { top: 30px; }
+    /* Screen-only chrome. */
+    .scrub, .caret { display: none; }
+    /* clamp() resolves against that narrow print viewport, landing at the small
+       end of every ramp and reading tiny once the page is scaled up. */
+    h1 { font-size: 68px; }
+    h2 { font-size: 40px; }
+    .cold p { font-size: 56px; }
+    .thesis { font-size: 24px; }
+    .lede { font-size: 18px; }
+    a { text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+
+  <!-- ============ 00 · cold open ============ -->
+  <section class="slide cold" data-name="Control-F">
+    <div class="slug"><span>Askable</span><span></span></div>
+    <div class="inner">
+      <p class="setup">You can <kbd>Control-F</kbd> a document…</p>
+      <p class="turn">You <em>can't</em> <kbd>Control-F</kbd> a video…<span class="caret" aria-hidden="true"></span></p>
+    </div>
+  </section>
+
+  <!-- ============ 01 ============ -->
+  <section class="slide" data-name="Title">
+    <div class="slug"><span>Askable</span><span>AI Factory · Native.builder</span></div>
+    <div class="inner title-grid">
+      <p class="kicker">Askable</p>
+      <h1>Make any video<br>askable.</h1>
+      <p class="lede">Paste a YouTube link. Get a source you can interrogate in plain language — where <em>every answer cites the exact second it came from</em>, as a link that jumps you there.</p>
+      <div class="badge-row">
+        <span class="badge hot">Built with Native.builder</span>
+        <span class="badge">React · Vite · TypeScript</span>
+        <span class="badge">Supabase Edge Functions</span>
+        <span class="badge">RAG over pgvector</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 ============ -->
+  <section class="slide" data-name="Problem">
+    <div class="slug"><span>The problem</span><span>02</span></div>
+    <div class="inner">
+      <h2>A 90-minute video is the<br>worst database ever built.</h2>
+      <div class="beats">
+        <div class="beat"><span class="n">01</span><p>The answer <strong>is in there</strong> — buried somewhere between minute 12 and minute 74.</p></div>
+        <div class="beat"><span class="n">02</span><p>Search gives you <strong>the video, not the moment</strong>. You still have to watch it.</p></div>
+        <div class="beat"><span class="n">03</span><p>Auto-captions are a wall of text with <strong>no structure and no citations</strong>.</p></div>
+        <div class="beat"><span class="n">04</span><p>So people skim at 2× and <strong>quote from memory</strong> — which is how misquotes happen.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 03 ============ -->
+  <section class="slide" data-name="What it does">
+    <div class="slug"><span>What it does</span><span>03</span></div>
+    <div class="inner">
+      <p class="kicker">Three steps, one paste</p>
+      <h2>From a link to a queryable source.</h2>
+      <div class="steps">
+        <div class="step">
+          <span class="tc">STEP 01</span>
+          <h3>Paste a link</h3>
+          <p>A YouTube URL, or upload an audio/video file directly. Nothing to install, nothing to configure.</p>
+        </div>
+        <div class="step">
+          <span class="tc">STEP 02</span>
+          <h3>It transcribes and indexes</h3>
+          <p>The transcript is chunked <strong>with its timings intact</strong>, embedded at 1536 dimensions, and stored in Postgres with pgvector. Progress streams back live.</p>
+        </div>
+        <div class="step">
+          <span class="tc">STEP 03</span>
+          <h3>Ask in plain language</h3>
+          <p>Answers come back grounded in the transcript, each one carrying the timestamps it was built from — clickable, and pointing at the exact second.</p>
+        </div>
+      </div>
+      <p class="fine">One complete workflow, end to end: submit → transcribe → embed → retrieve → answer → verify.</p>
+    </div>
+  </section>
+
+  <!-- ============ 04 ============ -->
+  <section class="slide" data-name="The moment">
+    <div class="slug"><span>The moment that sells it</span><span>04</span></div>
+    <div class="inner">
+      <div class="mock">
+        <div class="window">
+          <div class="window-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span style="margin-left:6px">SAMPLE SESSION · ILLUSTRATIVE</span></div>
+          <div class="window-body">
+            <div class="bubble user">What did they say about the inflation target?</div>
+            <div class="bubble bot">
+              They describe the target as unchanged, and spend most of the segment on <strong>why the path back to it is slower than expected</strong> — pointing at services pricing rather than energy as the reason.
+              <div class="chips">
+                <span class="chip">04:12</span>
+                <span class="chip">11:38</span>
+                <span class="chip">27:05</span>
+              </div>
+            </div>
+            <div class="bubble user">How many times do they say "recession"?</div>
+            <div class="bubble bot">
+              <strong>Three times</strong> — at <span class="mono" style="color:var(--ask)">08:41</span>, <span class="mono" style="color:var(--ask)">22:16</span> and <span class="mono" style="color:var(--ask)">55:03</span>, each with the surrounding sentence quoted.
+            </div>
+          </div>
+        </div>
+        <div class="mock-note">
+          <p class="kicker ask">Verifiable by construction</p>
+          <p class="thesis">Every claim ships with the second it came from.</p>
+          <p class="lede">Click a timecode and the video opens at that moment. The answer is not something to trust — it is something to <em>check</em>, in one click.</p>
+          <p class="fine">Counting questions bypass retrieval entirely and scan every segment, so the count is exact rather than whatever the top-k window happened to contain.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 ============ -->
+  <section class="slide" data-name="Architecture">
+    <div class="slug"><span>How it works · topology</span><span>05</span></div>
+    <div class="inner">
+      <div>
+        <p class="kicker">Application of technology</p>
+        <h2 style="margin-top:10px">One backend. Three specialists behind it.</h2>
+      </div>
+      <div class="figwrap fig-topology">
+        <svg viewBox="0 0 1160 510" role="img" aria-label="Topology: the React SPA hosted on Natively.ai calls only Supabase Edge Functions, which in turn call Bright Data, Speechmatics and AI/ML API. Bright Data scrapes YouTube.">
+          <defs>
+            <marker id="t-cap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--capture)"/></marker>
+            <marker id="t-ask" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ask)"/></marker>
+            <marker id="t-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/></marker>
+          </defs>
+
+          <text x="236" y="20" text-anchor="middle" font-family="var(--mono)" font-size="10.5" letter-spacing="1.2" fill="var(--faint)">TRUST BOUNDARY</text>
+          <line x1="236" y1="32" x2="236" y2="488" stroke="var(--faint)" stroke-width="1" stroke-dasharray="3 5"/>
+          <text x="228" y="484" text-anchor="end" font-family="var(--mono)" font-size="10" fill="var(--faint)">anon key only</text>
+          <text x="246" y="484" font-family="var(--mono)" font-size="10" fill="var(--faint)">service keys (Deno env)</text>
+
+          <rect x="24" y="118" width="176" height="184" rx="3" fill="none" stroke="var(--faint)" stroke-dasharray="4 4"/>
+          <text x="112" y="143" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--ink)">Natively.ai</text>
+          <text x="112" y="160" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--faint)">hosting</text>
+          <rect x="42" y="180" width="140" height="76" rx="3" fill="var(--raised)" stroke="var(--ink)"/>
+          <text x="112" y="208" text-anchor="middle" font-family="var(--sans)" font-size="13" font-weight="600" fill="var(--ink)">React SPA</text>
+          <text x="112" y="227" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">Vite · browser</text>
+
+          <rect x="380" y="64" width="380" height="400" rx="3" fill="none" stroke="var(--ink)" stroke-width="1.5"/>
+          <text x="392" y="88" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--ink)">Supabase</text>
+          <text x="748" y="88" text-anchor="end" font-family="var(--mono)" font-size="10" fill="var(--faint)">the only backend</text>
+
+          <rect x="400" y="110" width="340" height="64" rx="3" fill="var(--raised)" stroke="var(--capture)" stroke-width="1.5"/>
+          <text x="570" y="137" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--ink)">process-video-v2</text>
+          <text x="570" y="157" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">Edge Function · Deno</text>
+
+          <rect x="400" y="192" width="340" height="64" rx="3" fill="var(--raised)" stroke="var(--ask)" stroke-width="1.5"/>
+          <text x="570" y="219" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--ink)">chat-agent</text>
+          <text x="570" y="239" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">Edge Function · Deno</text>
+
+          <rect x="400" y="292" width="162" height="62" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="481" y="317" text-anchor="middle" font-family="var(--sans)" font-size="12.5" font-weight="600" fill="var(--ink)">Postgres</text>
+          <text x="481" y="336" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">pgvector</text>
+
+          <rect x="578" y="292" width="162" height="62" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="659" y="317" text-anchor="middle" font-family="var(--sans)" font-size="12.5" font-weight="600" fill="var(--ink)">Storage</text>
+          <text x="659" y="336" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">audio bucket</text>
+
+          <rect x="400" y="384" width="340" height="46" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="570" y="412" text-anchor="middle" font-family="var(--sans)" font-size="12.5" fill="var(--ink)">Realtime</text>
+
+          <rect x="880" y="28" width="256" height="48" rx="3" fill="none" stroke="var(--rule)"/>
+          <text x="1008" y="50" text-anchor="middle" font-family="var(--sans)" font-size="12.5" font-weight="600" fill="var(--muted)">YouTube</text>
+          <text x="1008" y="67" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--faint)">the source</text>
+
+          <rect x="880" y="110" width="256" height="64" rx="3" fill="var(--panel)" stroke="var(--capture)" stroke-width="1.5"/>
+          <text x="1008" y="137" text-anchor="middle" font-family="var(--sans)" font-size="13.5" font-weight="600" fill="var(--ink)">Bright Data</text>
+          <text x="1008" y="157" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">dataset v3 · Web Unlocker</text>
+
+          <rect x="880" y="206" width="256" height="64" rx="3" fill="var(--panel)" stroke="var(--capture)" stroke-width="1.5"/>
+          <text x="1008" y="233" text-anchor="middle" font-family="var(--sans)" font-size="13.5" font-weight="600" fill="var(--ink)">Speechmatics</text>
+          <text x="1008" y="253" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">ASR with word timings</text>
+
+          <rect x="880" y="302" width="256" height="64" rx="3" fill="var(--panel)" stroke="var(--ask)" stroke-width="1.5"/>
+          <text x="1008" y="329" text-anchor="middle" font-family="var(--sans)" font-size="13.5" font-weight="600" fill="var(--ink)">AI/ML API</text>
+          <text x="1008" y="349" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--muted)">embeddings + chat model</text>
+
+          <line x1="182" y1="200" x2="394" y2="141" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#t-cap)"/>
+          <text x="291" y="161" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--capture)">submit video</text>
+
+          <line x1="182" y1="232" x2="394" y2="222" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#t-ask)"/>
+          <text x="291" y="218" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--ask)">ask question</text>
+
+          <polyline points="400,407 112,407 112,308" fill="none" stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#t-mut)"/>
+          <text x="256" y="399" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--muted)">live status</text>
+
+          <line x1="740" y1="138" x2="874" y2="138" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#t-cap)"/>
+          <text x="807" y="130" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--capture)">trigger + poll</text>
+
+          <line x1="740" y1="158" x2="874" y2="230" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#t-cap)"/>
+          <text x="806" y="186" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--capture)">create ASR job</text>
+
+          <line x1="740" y1="172" x2="874" y2="324" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#t-cap)"/>
+          <text x="812" y="246" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--capture)">embed chunks</text>
+
+          <line x1="740" y1="232" x2="874" y2="346" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#t-ask)"/>
+          <text x="820" y="292" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--ask)">embed + answer</text>
+
+          <line x1="1008" y1="110" x2="1008" y2="82" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#t-mut)"/>
+          <text x="1018" y="99" font-family="var(--mono)" font-size="10.5" fill="var(--muted)">fetch</text>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i class="sw capture"></i> capture path</span>
+        <span><i class="sw ask"></i> question path</span>
+        <span><i class="sw dash"></i> push · no credential of its own</span>
+        <span>The browser never holds a third-party key.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 06 ============ -->
+  <section class="slide" data-name="Ingestion">
+    <div class="slug"><span>How it works · ingestion</span><span>06</span></div>
+    <div class="inner">
+      <div>
+        <p class="kicker">Originality · resilience</p>
+        <h2 style="margin-top:10px">Two independent ways in.</h2>
+      </div>
+      <div class="figwrap fig-routes">
+        <svg viewBox="0 0 1000 320" role="img" aria-label="Route A reaches the transcript through Bright Data's dataset in three hops. Route B adds a proxy, an audio download, Storage and Speechmatics — five hops — and Speechmatics pulls the audio from Storage itself.">
+          <defs>
+            <marker id="r-cap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--capture)"/></marker>
+            <marker id="r-alert" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--alert)"/></marker>
+          </defs>
+
+          <text x="20" y="42" font-family="var(--mono)" font-size="11.5" font-weight="600" fill="var(--capture)">ROUTE A · dataset (default)</text>
+          <text x="912" y="42" text-anchor="end" font-family="var(--mono)" font-size="11" fill="var(--faint)">1 external service</text>
+
+          <rect x="20" y="60" width="112" height="48" rx="3" fill="var(--raised)" stroke="var(--ink)"/>
+          <text x="76" y="82" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">request</text>
+          <text x="76" y="98" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">submitVideo()</text>
+          <rect x="280" y="60" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--capture)" stroke-width="1.5"/>
+          <text x="336" y="82" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">Bright Data</text>
+          <text x="336" y="98" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">dataset v3</text>
+          <rect x="670" y="60" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="726" y="82" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">chunks</text>
+          <text x="726" y="98" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">+ embeddings</text>
+          <rect x="800" y="60" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="856" y="82" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">Postgres</text>
+          <text x="856" y="98" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">pgvector</text>
+
+          <line x1="132" y1="84" x2="274" y2="84" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+          <text x="203" y="76" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--capture)">trigger + poll snapshot</text>
+          <line x1="392" y1="84" x2="664" y2="84" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+          <text x="528" y="76" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--capture)">returns a finished transcript</text>
+          <line x1="782" y1="84" x2="794" y2="84" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+
+          <rect x="144" y="188" width="514" height="72" rx="3" fill="none" stroke="var(--alert)" stroke-dasharray="4 4"/>
+          <text x="401" y="182" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--alert)">everything route B adds</text>
+
+          <text x="20" y="164" font-family="var(--mono)" font-size="11.5" font-weight="600" fill="var(--capture)">ROUTE B · audio + ASR</text>
+          <text x="912" y="164" text-anchor="end" font-family="var(--mono)" font-size="11" fill="var(--muted)">fallback · needs a residential proxy zone</text>
+
+          <rect x="20" y="200" width="112" height="48" rx="3" fill="var(--raised)" stroke="var(--ink)"/>
+          <text x="76" y="222" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">request</text>
+          <text x="76" y="238" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">submitVideo()</text>
+          <rect x="150" y="200" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--capture)" stroke-width="1.5"/>
+          <text x="206" y="222" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">Bright Data</text>
+          <text x="206" y="238" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">Web Unlocker</text>
+          <rect x="280" y="200" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="336" y="222" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">audio .m4a</text>
+          <text x="336" y="238" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">InnerTube iOS</text>
+          <rect x="410" y="200" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="466" y="222" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">Storage</text>
+          <text x="466" y="238" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">public URL</text>
+          <rect x="540" y="200" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--capture)" stroke-width="1.5"/>
+          <text x="596" y="222" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">Speechmatics</text>
+          <text x="596" y="238" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">ASR job</text>
+          <rect x="670" y="200" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="726" y="222" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">chunks</text>
+          <text x="726" y="238" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">+ embeddings</text>
+          <rect x="800" y="200" width="112" height="48" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="856" y="222" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">Postgres</text>
+          <text x="856" y="238" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">pgvector</text>
+
+          <line x1="132" y1="224" x2="144" y2="224" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+          <line x1="262" y1="224" x2="274" y2="224" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+          <line x1="392" y1="224" x2="404" y2="224" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+          <line x1="522" y1="224" x2="534" y2="224" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+          <line x1="652" y1="224" x2="664" y2="224" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+          <line x1="782" y1="224" x2="794" y2="224" stroke="var(--capture)" stroke-width="1.6" marker-end="url(#r-cap)"/>
+
+          <polyline points="596,248 596,286 466,286 466,254" fill="none" stroke="var(--alert)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#r-alert)"/>
+          <text x="531" y="304" text-anchor="middle" font-family="var(--mono)" font-size="10.5" fill="var(--alert)">Speechmatics pulls the audio out of Storage itself</text>
+        </svg>
+      </div>
+      <div class="split">
+        <p class="lede">The default route asks Bright Data for a finished transcript — one hop, no proxy, no audio. When that isn't available, the same function walks the long way: proxy the player, download the audio, park it in Storage, and hand Speechmatics a <em>URL rather than a file</em>.</p>
+        <p class="lede">Collections can outlive a single invocation, so a job that doesn't finish in time is <em>parked, not lost</em> — the row keeps its snapshot id and a resume call picks it up exactly where it stopped.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 07 ============ -->
+  <section class="slide" data-name="Retrieval">
+    <div class="slug"><span>How it works · retrieval</span><span>07</span></div>
+    <div class="inner">
+      <div>
+        <p class="kicker ask">The insight that makes it trustworthy</p>
+        <h2 style="margin-top:10px">Retrieval can't count.</h2>
+      </div>
+      <div class="figwrap fig-branch">
+        <svg viewBox="0 0 940 220" role="img" aria-label="The chat agent branches: literal questions scan every segment, semantic questions go through embedding, pgvector top-8 and the chat model. Both end in a timestamped answer.">
+          <defs>
+            <marker id="b-ask" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ask)"/></marker>
+          </defs>
+          <rect x="20" y="86" width="110" height="48" rx="3" fill="var(--raised)" stroke="var(--ink)"/>
+          <text x="75" y="108" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">question</text>
+          <text x="75" y="124" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">askQuestion()</text>
+
+          <rect x="160" y="86" width="110" height="48" rx="3" fill="var(--panel)" stroke="var(--ask)" stroke-width="1.5"/>
+          <text x="215" y="115" text-anchor="middle" font-family="var(--mono)" font-size="11.5" font-weight="600" fill="var(--ink)">chat-agent</text>
+
+          <text x="295" y="78" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--faint)">asking about a literal word?</text>
+
+          <rect x="320" y="20" width="370" height="48" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="505" y="42" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">scan every segment</text>
+          <text x="505" y="58" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">no retrieval · exact count, every hit</text>
+
+          <rect x="320" y="152" width="110" height="48" rx="3" fill="var(--panel)" stroke="var(--ask)" stroke-width="1.5"/>
+          <text x="375" y="174" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">embedding</text>
+          <text x="375" y="190" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">1536 dims</text>
+          <rect x="450" y="152" width="110" height="48" rx="3" fill="var(--panel)" stroke="var(--rule)"/>
+          <text x="505" y="174" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">pgvector</text>
+          <text x="505" y="190" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">top 8 chunks</text>
+          <rect x="580" y="152" width="110" height="48" rx="3" fill="var(--panel)" stroke="var(--ask)" stroke-width="1.5"/>
+          <text x="635" y="174" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">chat model</text>
+          <text x="635" y="190" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">grounded answer</text>
+
+          <rect x="740" y="86" width="180" height="48" rx="3" fill="var(--raised)" stroke="var(--ink)"/>
+          <text x="830" y="108" text-anchor="middle" font-family="var(--sans)" font-size="12" font-weight="600" fill="var(--ink)">answer with timestamps</text>
+          <text x="830" y="124" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">deep links at the second</text>
+
+          <line x1="130" y1="110" x2="154" y2="110" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#b-ask)"/>
+          <line x1="270" y1="100" x2="314" y2="50" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#b-ask)"/>
+          <text x="286" y="90" font-family="var(--mono)" font-size="10" fill="var(--faint)">yes</text>
+          <line x1="270" y1="120" x2="314" y2="170" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#b-ask)"/>
+          <text x="286" y="142" font-family="var(--mono)" font-size="10" fill="var(--faint)">no</text>
+          <line x1="430" y1="176" x2="444" y2="176" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#b-ask)"/>
+          <line x1="560" y1="176" x2="574" y2="176" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#b-ask)"/>
+          <line x1="690" y1="44" x2="734" y2="96" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#b-ask)"/>
+          <line x1="690" y1="170" x2="734" y2="124" stroke="var(--ask)" stroke-width="1.6" marker-end="url(#b-ask)"/>
+        </svg>
+      </div>
+      <div class="split">
+        <p class="lede">Ask <em>"how many times do they say X"</em> and top-k retrieval will confidently undercount — it only ever saw eight chunks. So that question skips retrieval entirely and reads the whole transcript.</p>
+        <p class="lede">And a literal miss is not proof of absence: ASR writes names phonetically, so a failed word search <em>falls through to semantic search</em> instead of answering "never mentioned" about a video that discusses it at length.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 08 ============ -->
+  <section class="slide" data-name="Native.builder">
+    <div class="slug"><span>How it was built</span><span>08</span></div>
+    <div class="inner">
+      <p class="kicker">Built without limits</p>
+      <h2>Described in plain language.<br>Shipped as a production app.</h2>
+      <p class="lede">All of Askable — frontend, edge functions, database schema, vector search, the third-party integrations — was built with <em>Native.builder</em>. No boilerplate, no scaffolding by hand: the agents planned, wrote and shipped a real React codebase, and the work went into the parts that actually needed judgment.</p>
+      <div class="cards">
+        <div class="card"><h4>Frontend</h4><p><strong>React + Vite + TypeScript.</strong> Submission, live status, chat panel, transcript sources.</p></div>
+        <div class="card"><h4>Backend</h4><p><strong>Supabase Edge Functions</strong> on Deno — one for ingestion, one for the chat agent.</p></div>
+        <div class="card ask"><h4>Data</h4><p><strong>Postgres + pgvector</strong> for chunks and embeddings, Storage for audio, Realtime for status.</p></div>
+        <div class="card"><h4>Integrations</h4><p><strong>Bright Data, Speechmatics, AI/ML API</strong> — every key held server-side only.</p></div>
+      </div>
+      <p class="fine">This deck and the architecture behind it were derived from the shipped code, not written ahead of it.</p>
+    </div>
+  </section>
+
+  <!-- ============ 09 ============ -->
+  <section class="slide" data-name="Value">
+    <div class="slug"><span>Who it's for</span><span>09</span></div>
+    <div class="inner">
+      <p class="kicker">Business value</p>
+      <h2>Anyone who has to quote a video correctly.</h2>
+      <div class="split">
+        <ul class="list">
+          <li>
+            <span class="who">Researchers and students</span>
+            <span class="job">Turn a lecture series into a searchable, citable source.</span>
+          </li>
+          <li>
+            <span class="who">Journalists and analysts</span>
+            <span class="job">Find the exact sentence in a two-hour press conference — with the link that proves it.</span>
+          </li>
+          <li>
+            <span class="who">Product and support teams</span>
+            <span class="job">Mine recorded calls and demos without rewatching them.</span>
+          </li>
+          <li>
+            <span class="who">Creators</span>
+            <span class="job">Pull clips, quotes and chapter markers out of their own back catalogue.</span>
+          </li>
+        </ul>
+        <div class="aside">
+          <p class="thesis">A video archive becomes a knowledge base you can ask questions of.</p>
+          <p class="lede">Everything is already per-video and multi-tenant by construction, so the next steps are additive rather than a rewrite: <em>search across a whole channel</em>, playlist ingestion, and shared team workspaces.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 10 ============ -->
+  <section class="slide" data-name="Try it">
+    <div class="slug"><span>Try it</span><span>10</span></div>
+    <div class="inner title-grid">
+      <p class="kicker ask">Live now</p>
+      <h1>Stop scrubbing.<br>Start asking.</h1>
+      <p class="lede">Paste a link. Ask it something. <em>Askable</em> — make any video askable.</p>
+      <div class="cta-row">
+        <a class="cta" href="#" data-live-url>Open the live app →</a>
+        <a class="cta secondary" href="#" data-repo-url>Source code</a>
+      </div>
+      <p class="fine">Askable · AI Factory · Native.builder: Build Without Limits — lablab.ai, August 2026</p>
+    </div>
+  </section>
+
+</div>
+
+<nav class="scrub" aria-label="Slide navigation">
+  <span class="scrub-label"><b id="scrub-n">01</b> / <span id="scrub-total">11</span> · <span id="scrub-name">Control-F</span></span>
+  <div class="ticks" id="ticks"></div>
+  <div class="nav">
+    <button id="prev" aria-label="Previous slide">‹</button>
+    <button id="next" aria-label="Next slide">›</button>
+  </div>
+</nav>
+
+<script>
+  var deck = document.getElementById('deck');
+  var slides = Array.prototype.slice.call(deck.querySelectorAll('.slide'));
+  var ticks = document.getElementById('ticks');
+  var scrubN = document.getElementById('scrub-n');
+  var scrubName = document.getElementById('scrub-name');
+  var current = 0;
+
+  // Derived, so adding a slide never leaves the counter lying about the total.
+  document.getElementById('scrub-total').textContent = String(slides.length);
+
+  slides.forEach(function (s, i) {
+    var b = document.createElement('button');
+    b.className = 'tick';
+    b.type = 'button';
+    b.setAttribute('aria-label', 'Go to slide ' + (i + 1) + ': ' + s.dataset.name);
+    b.addEventListener('click', function () { go(i); });
+    ticks.appendChild(b);
+  });
+  var tickEls = Array.prototype.slice.call(ticks.children);
+
+  function paint(i) {
+    current = i;
+    scrubN.textContent = String(i + 1).padStart(2, '0');
+    scrubName.textContent = slides[i].dataset.name;
+    tickEls.forEach(function (t, j) { t.setAttribute('aria-current', j === i ? 'true' : 'false'); });
+  }
+
+  function go(i) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    slides[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    paint(i);
+  }
+
+  document.getElementById('next').addEventListener('click', function () { go(current + 1); });
+  document.getElementById('prev').addEventListener('click', function () { go(current - 1); });
+
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) paint(slides.indexOf(e.target));
+    });
+  }, { threshold: 0.55 });
+  slides.forEach(function (s) { io.observe(s); });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ':
+        e.preventDefault(); go(current + 1); break;
+      case 'ArrowLeft': case 'ArrowUp': case 'PageUp':
+        e.preventDefault(); go(current - 1); break;
+      case 'Home': e.preventDefault(); go(0); break;
+      case 'End': e.preventDefault(); go(slides.length - 1); break;
+    }
+  });
+
+  // Touch: swipe up/down between slides is already handled by scroll-snap.
+  paint(0);
+</script>
+</body>
+</html>
