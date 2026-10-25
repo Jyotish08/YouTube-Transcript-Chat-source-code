@@ -302,12 +302,12 @@ async function pollSpeechmaticsJob(jobId: string, timeoutMs = 300_000): Promise<
 /** ------------------------------------------------------------------ */
 
 async function generateEmbedding(text: string): Promise<number[]> {
-  const apiKey = Deno.env.get('AIMLAPI_KEY');
-  if (!apiKey) throw new Error('AIMLAPI_KEY not set');
+  const apiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('VERCEL_AI_GATEWAY_KEY');
+  if (!apiKey) throw new Error('OPENAI_API_KEY or VERCEL_AI_GATEWAY_KEY not set');
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const response = await fetch('https://api.aimlapi.com/v1/embeddings', {
+      const response = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -318,7 +318,7 @@ async function generateEmbedding(text: string): Promise<number[]> {
       });
       if (!response.ok) {
         const errText = await response.text();
-        throw new Error(`AI/ML API (${response.status}): ${errText.slice(0, 200)}`);
+        throw new Error(`Vercel AI Gateway (${response.status}): ${errText.slice(0, 200)}`);
       }
       const result = await response.json();
       return result.data[0].embedding;

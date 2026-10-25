@@ -26,5 +26,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+supabase/.temp/
 graphify-out/
 YouTube-Transcript-Chat-source-code/

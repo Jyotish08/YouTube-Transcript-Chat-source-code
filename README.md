@@ -1,9 +1,9 @@
-# Askable
+﻿# Askable
 
 **Make any video askable.**
 
 You can Control-F a document. You can't Control-F a video. Askable turns any video
-into a source you can interrogate in plain language — and every answer cites the
+into a source you can interrogate in plain language â€” and every answer cites the
 exact second it came from, as a link that jumps you straight there.
 
 Paste a YouTube URL or upload a video file. Askable fetches or generates the
@@ -16,7 +16,7 @@ transcript, indexes it with timestamps, and gives you a chat panel per video.
 - **Two ingestion paths.** YouTube links go through Bright Data (captions);
   uploaded files go to Speechmatics ASR, so a video works with or without captions.
 - **Answers with proof.** Every answer carries the transcript chunks it used, with
-  timestamps rendered as `youtube.com/watch?v=…&t=NNs` deep links.
+  timestamps rendered as `youtube.com/watch?v=â€¦&t=NNs` deep links.
 - **Exact mention counting.** "How many times do they say *government*?" cannot be
   answered from the eight closest chunks, because the model never saw the rest of
   the transcript. Askable detects those questions and scans every segment literally,
@@ -33,13 +33,13 @@ Deeper architecture notes live in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ```
 Browser (React + Vite)
-   │  anon key only — never holds a third-party key
-   ▼
+   â”‚  anon key only â€” never holds a third-party key
+   â–¼
 Supabase
-   ├── process-video-v2   (Edge Function, Deno)  → Bright Data · Speechmatics · AI/ML API
-   ├── chat-agent         (Edge Function, Deno)  → AI/ML API
-   ├── Postgres + pgvector                        (videos, transcripts)
-   └── Realtime                                   (live status in the sidebar)
+   â”œâ”€â”€ process-video-v2   (Edge Function, Deno)  â†’ Bright Data Â· Speechmatics Â· AI/ML API
+   â”œâ”€â”€ chat-agent         (Edge Function, Deno)  â†’ AI/ML API
+   â”œâ”€â”€ Postgres + pgvector                        (videos, transcripts)
+   â””â”€â”€ Realtime                                   (live status in the sidebar)
 ```
 
 The browser only ever talks to Supabase. All third-party keys live as Edge Function
@@ -49,7 +49,7 @@ environment variables and are never shipped to the client.
 |---|---|
 | **Supabase** | Edge Functions (Deno), Postgres + pgvector, Realtime. The only backend the browser touches. |
 | **Bright Data** | YouTube transcript retrieval (Dataset API). |
-| **Speechmatics** | ASR for uploaded files — audio to text with word timings. |
+| **Speechmatics** | ASR for uploaded files â€” audio to text with word timings. |
 | **AI/ML API** | Embeddings (`text-embedding-3-small`, 1536 dims) and the chat model (`gpt-4o-mini`). |
 
 ---
@@ -58,7 +58,7 @@ environment variables and are never shipped to the client.
 
 - **Node.js 20+** (Vite 7 requires it)
 - A **Supabase** project (free tier is enough)
-- The **Supabase CLI** — `npm i -g supabase`
+- The **Supabase CLI** â€” `npm i -g supabase`
 - Accounts and API keys for **Bright Data**, **Speechmatics** and **AI/ML API**
 
 ---
@@ -69,11 +69,11 @@ All three are set as **Supabase Edge Function secrets**, never in the frontend.
 
 | Key | Where to get it | Used for |
 |---|---|---|
-| `BRIGHTDATA_API_KEY` | [brightdata.com](https://brightdata.com) → Account settings → API tokens | Fetching YouTube transcripts |
-| `SPEECHMATICS_API_KEY` | [portal.speechmatics.com](https://portal.speechmatics.com) → API keys | Transcribing uploaded files |
-| `AIMLAPI_KEY` | [aimlapi.com](https://aimlapi.com) → Dashboard → API keys | Embeddings + the answering model |
+| `BRIGHTDATA_API_KEY` | [brightdata.com](https://brightdata.com) â†’ Account settings â†’ API tokens | Fetching YouTube transcripts |
+| `SPEECHMATICS_API_KEY` | [portal.speechmatics.com](https://portal.speechmatics.com) â†’ API keys | Transcribing uploaded files |
+| `VERCEL_AI_GATEWAY_KEY` | [vercel.com/docs/ai-gateway](https://vercel.com/docs/ai-gateway) â†’ Dashboard â†’ API keys | Embeddings + the answering model |
 
-`SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are injected by the Supabase platform —
+`SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are injected by the Supabase platform â€”
 you do not set those yourself.
 
 ---
@@ -161,7 +161,7 @@ not used.
 supabase login
 supabase link --project-ref <your-project-ref>
 
-# Both functions are called without a JWT — see the security note below.
+# Both functions are called without a JWT â€” see the security note below.
 supabase functions deploy process-video-v2 --no-verify-jwt
 supabase functions deploy chat-agent       --no-verify-jwt
 ```
@@ -172,15 +172,15 @@ supabase functions deploy chat-agent       --no-verify-jwt
 supabase secrets set \
   BRIGHTDATA_API_KEY=... \
   SPEECHMATICS_API_KEY=... \
-  AIMLAPI_KEY=...
+  VERCEL_AI_GATEWAY_KEY=...
 ```
 
 ### 5. Point the frontend at your project
 
-Two places still carry a hard-coded project reference — change both:
+Two places still carry a hard-coded project reference â€” change both:
 
-- `src/lib/supabase.ts` — `supabaseUrl` and the fallback anon key
-- `src/lib/api.ts` — `EDGE_FUNCTION_BASE`
+- `src/lib/supabase.ts` â€” `supabaseUrl` and the fallback anon key
+- `src/lib/api.ts` â€” `EDGE_FUNCTION_BASE`
 
 The anon key can also come from the environment. Create a `.env.local`:
 
@@ -196,7 +196,7 @@ npm run build      # production build to dist/
 npm run preview    # serve the build
 ```
 
-There is also `./run.sh` (`dev` · `build` · `preview` · `clean`), which checks your
+There is also `./run.sh` (`dev` Â· `build` Â· `preview` Â· `clean`), which checks your
 Node version first and accepts `PORT` and `HOST`.
 
 ---
@@ -204,9 +204,9 @@ Node version first and accepts `PORT` and `HOST`.
 ## Using it
 
 1. **Paste a YouTube URL** with captions, or switch to **Upload MP4** and drop a file
-   (20 MB default cap — see `UPLOAD_MAX_BYTES`).
-2. The sidebar shows live status: *Fetching → Transcribing → Indexing → Ready*.
-   You can keep using the app while it works — open another video and chat with it.
+   (20 MB default cap â€” see `UPLOAD_MAX_BYTES`).
+2. The sidebar shows live status: *Fetching â†’ Transcribing â†’ Indexing â†’ Ready*.
+   You can keep using the app while it works â€” open another video and chat with it.
 3. Once a video is **Ready**, ask anything. Answers cite their sources; timestamps
    are clickable and open the video at that second.
 4. Ask **"how many times do they say X?"** to get an exact count instead of a guess.
@@ -221,7 +221,7 @@ Node version first and accepts `PORT` and `HOST`.
 |---|---|
 | `BRIGHTDATA_API_KEY` | Required for the YouTube path |
 | `SPEECHMATICS_API_KEY` | Required for uploads |
-| `AIMLAPI_KEY` | Required for embeddings and answers |
+| `VERCEL_AI_GATEWAY_KEY` | Required for embeddings and answers |
 
 **Optional**
 

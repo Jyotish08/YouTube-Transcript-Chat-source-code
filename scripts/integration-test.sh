@@ -14,8 +14,8 @@
 set -euo pipefail
 
 # Configuration
-SUPABASE_URL="https://tpiohvdmwkqndgifwngg.supabase.co"
-SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRwaW9odmRtd2txbmRnaWZ3bmdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3Nzg2NTUsImV4cCI6MjEwMTM1NDY1NX0.tRPmCo1NTnoQfyuiBC5k-RW86pGlKfviYI28DfloKOM"
+SUPABASE_URL="${SUPABASE_URL:-https://kczhvclsdjdkmxpnawib.supabase.co}"
+SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-sb_publishable_ZuXO-a7ilo4XwydgX-262g_SulIrCO7}"
 
 TEST_VIDEO_URL="https://www.youtube.com/watch?v=x9Ra9KmEkGQ"
 

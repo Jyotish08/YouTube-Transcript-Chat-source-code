@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, supabaseUrl, supabaseKey } from './supabase';
 
 export interface Video {
   id: string;
@@ -37,7 +37,18 @@ export interface ChatResponse {
   video_title: string;
 }
 
-const EDGE_FUNCTION_BASE = 'https://tpiohvdmwkqndgifwngg.supabase.co/functions/v1';
+const EDGE_FUNCTION_BASE = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1`;
+
+function getFunctionHeaders(contentType: string | null = 'application/json'): Record<string, string> {
+  const headers: Record<string, string> = {
+    apikey: supabaseKey,
+    Authorization: `Bearer ${supabaseKey}`,
+  };
+  if (contentType) {
+    headers['Content-Type'] = contentType;
+  }
+  return headers;
+}
 
 /**
  * Submit a YouTube URL for processing.
@@ -57,7 +68,7 @@ export interface SubmitVideoResponse {
 export async function submitVideo(youtubeUrl: string): Promise<SubmitVideoResponse> {
   const response = await fetch(`${EDGE_FUNCTION_BASE}/process-video-v2`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getFunctionHeaders(),
     body: JSON.stringify({ youtube_url: youtubeUrl }),
   });
 
@@ -81,7 +92,7 @@ export async function submitVideo(youtubeUrl: string): Promise<SubmitVideoRespon
 export async function resumeVideo(videoId: string): Promise<{ status?: string }> {
   const response = await fetch(`${EDGE_FUNCTION_BASE}/process-video-v2`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getFunctionHeaders(),
     body: JSON.stringify({ video_id: videoId }),
   });
   if (!response.ok) return {};
@@ -112,6 +123,7 @@ export async function uploadVideoFile(file: File): Promise<SubmitVideoResponse> 
 
   const response = await fetch(`${EDGE_FUNCTION_BASE}/process-video-v2`, {
     method: 'POST',
+    headers: getFunctionHeaders(null),
     body: form,
   });
 
@@ -132,7 +144,7 @@ export async function uploadVideoFile(file: File): Promise<SubmitVideoResponse> 
 export async function deleteVideo(videoId: string): Promise<void> {
   const response = await fetch(`${EDGE_FUNCTION_BASE}/process-video-v2`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getFunctionHeaders(),
     body: JSON.stringify({ video_id: videoId, action: 'delete' }),
   });
   if (!response.ok) {
@@ -151,7 +163,7 @@ export async function deleteVideo(videoId: string): Promise<void> {
 export async function reprocessVideo(videoId: string): Promise<{ status?: string }> {
   const response = await fetch(`${EDGE_FUNCTION_BASE}/process-video-v2`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getFunctionHeaders(),
     body: JSON.stringify({ video_id: videoId, force: true }),
   });
   if (!response.ok) {
@@ -226,7 +238,7 @@ export async function askQuestion(
 ): Promise<ChatResponse> {
   const response = await fetch(`${EDGE_FUNCTION_BASE}/chat-agent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getFunctionHeaders(),
     body: JSON.stringify({ video_id: videoId, question }),
   });
 
