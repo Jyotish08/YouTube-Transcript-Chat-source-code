@@ -1,4 +1,4 @@
-// chat-agent/index.ts — RAG Q&A over a video transcript using OpenAI / Vercel AI Gateway
+// chat-agent/index.ts — RAG Q&A over a video transcript using AI/ML API, OpenAI, or Vercel AI Gateway
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -8,10 +8,20 @@ const corsHeaders = {
 };
 
 function getAiConfig() {
+  const aimlKey = Deno.env.get('AIML_API_KEY') || Deno.env.get('AIMLAPI_KEY');
   const openAiKey = Deno.env.get('OPENAI_API_KEY');
   const vercelKey = Deno.env.get('VERCEL_AI_GATEWAY_KEY');
-  const apiKey = openAiKey || vercelKey;
-  if (!apiKey) throw new Error('OPENAI_API_KEY or VERCEL_AI_GATEWAY_KEY not set');
+  const apiKey = aimlKey || openAiKey || vercelKey;
+  if (!apiKey) throw new Error('AIML_API_KEY, OPENAI_API_KEY, or VERCEL_AI_GATEWAY_KEY not set');
+
+  if (aimlKey) {
+    return {
+      apiKey,
+      baseUrl: 'https://api.aimlapi.com/v1',
+      embedModel: 'text-embedding-3-small',
+      chatModel: 'gpt-4o-mini',
+    };
+  }
 
   const isDirectOpenAi = !!openAiKey;
   return {
@@ -83,24 +93,61 @@ Deno.serve(async (req: Request) => {
     if (!video_id || !question) return new Response(JSON.stringify({ error: 'video_id and question are required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
     // Fetch video metadata
-    const { data: video } = await supabase.from('videos').select('title, status').eq('id', video_id).single();
+    const { data: video } = await supabase.from('videos').select('title, status, youtube_url').eq('id', video_id).single();
     if (!video) return new Response(JSON.stringify({ error: 'Video not found' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     if (video.status !== 'done') return new Response(JSON.stringify({ error: `Video is still ${video.status}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-    // Mention-count path
+    // Mention-count path: literal scan over every chunk with word boundaries and case-insensitivity
     if (isMentionCountQuestion(question)) {
       const keyword = extractKeyword(question);
       if (keyword) {
-        const { data: allChunks } = await supabase.from('transcripts').select('content').eq('video_id', video_id).order('chunk_index');
-        const count = countMentions(allChunks || [], keyword);
-        return new Response(
-          JSON.stringify({
-            answer: `The word "${keyword}" is mentioned ${count} time${count === 1 ? '' : 's'} in the transcript.`,
-            sources: [],
-            video_title: video.title || 'Unknown',
-          }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        const { data: allChunks } = await supabase
+          .from('transcripts')
+          .select('id, chunk_index, content')
+          .eq('video_id', video_id)
+          .order('chunk_index');
+
+        const pattern = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+        let totalCount = 0;
+        const matchedSources: any[] = [];
+
+        for (const c of (allChunks || [])) {
+          const hits = c.content.match(pattern);
+          if (hits && hits.length > 0) {
+            totalCount += hits.length;
+            const timeMatch = c.content.match(/\[(\d+:\d{2})\]/);
+            const timestamp = timeMatch ? timeMatch[1] : undefined;
+            let start_seconds: number | undefined = undefined;
+            if (timestamp) {
+              const [m, s] = timestamp.split(':').map(Number);
+              start_seconds = m * 60 + s;
+            }
+            const ytId = extractYouTubeId(video.youtube_url || '');
+            matchedSources.push({
+              chunk_index: c.chunk_index,
+              similarity: 1.0,
+              timestamp,
+              start_seconds,
+              ...(ytId && start_seconds != null ? { url: `https://www.youtube.com/watch?v=${ytId}&t=${start_seconds}s` } : {}),
+            });
+          }
+        }
+
+        if (totalCount > 0) {
+          const timestampList = matchedSources.filter((s) => s.timestamp).map((s) => `[${s.timestamp}]`).join(', ');
+          return new Response(
+            JSON.stringify({
+              answer: `The word or phrase "${keyword}" is mentioned **${totalCount} time${totalCount === 1 ? '' : 's'}** across the transcript in this video${
+                timestampList ? ` (at ${timestampList})` : ''
+              }.`,
+              sources: matchedSources,
+              video_title: video.title || 'Unknown',
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        // If literal count is 0, fall through to the semantic search path below
+        // so conceptual mentions or rephrased queries get answered accurately.
       }
     }
 
@@ -147,4 +194,13 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function extractYouTubeId(url: string): string | null {
+  if (!url) return null;
+  const beMatch = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+  if (beMatch) return beMatch[1];
+  const watchMatch = url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+  if (watchMatch) return watchMatch[1];
+  return null;
 }

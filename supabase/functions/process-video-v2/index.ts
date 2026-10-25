@@ -1,4 +1,4 @@
-// process-video-v2/index.ts — Ingestion pipeline using OpenAI / Vercel AI Gateway for embeddings
+// process-video-v2/index.ts — Ingestion pipeline using AI/ML API, OpenAI, or Vercel AI Gateway for embeddings
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -7,17 +7,25 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// --- Embeddings via OpenAI / Vercel AI Gateway ---
+// --- Embeddings via AI/ML API, OpenAI, or Vercel AI Gateway ---
 
 async function generateEmbedding(text: string): Promise<number[]> {
+  const aimlKey = Deno.env.get('AIML_API_KEY') || Deno.env.get('AIMLAPI_KEY');
   const openAiKey = Deno.env.get('OPENAI_API_KEY');
   const vercelKey = Deno.env.get('VERCEL_AI_GATEWAY_KEY');
-  const apiKey = openAiKey || vercelKey;
-  if (!apiKey) throw new Error('OPENAI_API_KEY or VERCEL_AI_GATEWAY_KEY not set');
+  const apiKey = aimlKey || openAiKey || vercelKey;
+  if (!apiKey) throw new Error('AIML_API_KEY, OPENAI_API_KEY, or VERCEL_AI_GATEWAY_KEY not set');
 
-  const isDirectOpenAi = !!openAiKey;
-  const baseUrl = isDirectOpenAi ? 'https://api.openai.com/v1' : 'https://ai-gateway.vercel.sh/v1';
-  const model = isDirectOpenAi ? 'text-embedding-3-small' : 'openai/text-embedding-3-small';
+  let baseUrl = 'https://ai-gateway.vercel.sh/v1';
+  let model = 'openai/text-embedding-3-small';
+
+  if (aimlKey) {
+    baseUrl = 'https://api.aimlapi.com/v1';
+    model = 'text-embedding-3-small';
+  } else if (openAiKey) {
+    baseUrl = 'https://api.openai.com/v1';
+    model = 'text-embedding-3-small';
+  }
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import VideoSubmission from './components/VideoSubmission';
 import ChatPanel from './components/ChatPanel';
+import ErrorBoundary from './components/ErrorBoundary';
 import {
   Video, fetchVideos, resumeVideo, deleteVideo, submitVideo, uploadVideoFile,
 } from './lib/api';
@@ -20,25 +21,15 @@ export default function App() {
   const [showSubmission, setShowSubmission] = useState(true);
 
   // The submission runs here rather than inside VideoSubmission so that walking
-  // away from the form does not unmount the request that is in flight. The
-  // label is what the sidebar and the form show while it runs; keeping it here
-  // means the form can be closed and reopened without losing the progress.
+  // away from the form does not unmount the request in flight.
   const [pendingLabel, setPendingLabel] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // The list lives here, not in the sidebar, so the selected video is always the
-  // freshly polled row. Otherwise the chat panel would hold a stale copy and
-  // never notice that processing finished.
   const selectedVideo = videos.find((v) => v.id === selectedVideoId) ?? null;
 
-  // Read by the polling interval below, which must not be torn down and
-  // recreated on every refresh yet still needs the current rows.
   const videosRef = useRef(videos);
   videosRef.current = videos;
 
-  // Whether the submission form is the visible panel, read when a submission
-  // resolves: if the user has moved to a chat by then, we must not drag them
-  // out of it. A ref because the check happens inside a long-lived promise.
   const onSubmissionRef = useRef(showSubmission);
   onSubmissionRef.current = showSubmission;
 
@@ -59,17 +50,12 @@ export default function App() {
     load().finally(() => setLoading(false));
   }, [load]);
 
-  // Keeps in-flight videos moving. Two jobs while any row is not yet done or
-  // errored: refresh the list so badges and the chat panel reflect reality, and
-  // nudge rows parked in 'transcribing', whose Bright Data snapshot outlived the
-  // invocation that started it and needs picking up to finish.
+  // Keep in-flight non-demo videos moving.
   const pendingIds = videos
-    .filter((v) => v.status !== 'done' && v.status !== 'error')
+    .filter((v) => !v.id.startsWith('demo-') && v.status !== 'done' && v.status !== 'error')
     .map((v) => v.id)
     .join(',');
 
-  // A submission in flight counts as pending even before its row exists: that
-  // is exactly the window in which the sidebar would otherwise show nothing.
   const submitting = pendingLabel !== null;
 
   useEffect(() => {
@@ -77,7 +63,7 @@ export default function App() {
 
     let cancelled = false;
     const tick = async () => {
-      const stuck = videosRef.current.filter((v) => v.status === 'transcribing');
+      const stuck = videosRef.current.filter((v) => !v.id.startsWith('demo-') && v.status === 'transcribing');
       await Promise.all(stuck.map((v) => resumeVideo(v.id).catch(() => undefined)));
       if (!cancelled) await load();
     };
@@ -89,9 +75,6 @@ export default function App() {
     };
   }, [pendingIds, submitting, load]);
 
-  // The Edge Function inserts the row before it starts transcribing, so a
-  // couple of early refreshes surface it in the sidebar in seconds instead of
-  // waiting out a full 10s tick with no sign that anything is happening.
   useEffect(() => {
     if (!submitting) return;
     const timers = [1_500, 4_000].map((ms) => setTimeout(() => { load(); }, ms));
@@ -110,10 +93,13 @@ export default function App() {
 
   const handleDeleteVideo = useCallback(
     async (video: Video) => {
+      if (video.id.startsWith('demo-')) {
+        setError('Preloaded judge demo sessions cannot be deleted.');
+        return;
+      }
+
       try {
         await deleteVideo(video.id);
-        // Drop it locally right away so the row does not linger until the next
-        // fetch, and fall back to the submission view if it was open.
         setVideos((prev) => prev.filter((v) => v.id !== video.id));
         clearConversation(video.id);
         setSelectedVideoId((current) => {
@@ -129,9 +115,6 @@ export default function App() {
     [load],
   );
 
-  // Runs the whole submission, including the wait, without blocking the rest of
-  // the app: the sidebar stays live and any finished video can be opened and
-  // chatted with while this is still going.
   const handleSubmit = useCallback(
     async (input: SubmissionInput) => {
       if (pendingLabel) return;
@@ -144,9 +127,6 @@ export default function App() {
           : await submitVideo(input.value);
 
         const fresh = await load();
-        // Land in the new video's chat only if the user is still sitting on the
-        // form. If they went off to read another video meanwhile, leave them
-        // there — the sidebar row is how they get to this one.
         if (result?.video_id && fresh?.some((v) => v.id === result.video_id) && onSubmissionRef.current) {
           setSelectedVideoId(result.video_id);
           setShowSubmission(false);
@@ -161,33 +141,36 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-screen bg-bg-primary">
-      <Sidebar
-        videos={videos}
-        loading={loading}
-        error={error}
-        selectedVideoId={selectedVideoId}
-        onSelectVideo={handleSelectVideo}
-        onNewVideo={handleNewVideo}
-        onDeleteVideo={handleDeleteVideo}
-        isSubmissionOpen={showSubmission}
-        pendingLabel={pendingLabel}
-        submitError={submitError}
-      />
+    <ErrorBoundary>
+      <div className="flex h-screen bg-bg-primary">
+        <Sidebar
+          videos={videos}
+          loading={loading}
+          error={error}
+          selectedVideoId={selectedVideoId}
+          onSelectVideo={handleSelectVideo}
+          onNewVideo={handleNewVideo}
+          onDeleteVideo={handleDeleteVideo}
+          isSubmissionOpen={showSubmission}
+          pendingLabel={pendingLabel}
+          submitError={submitError}
+        />
 
-      <main className="flex-1 flex flex-col min-w-0">
-        {showSubmission || !selectedVideo ? (
-          <VideoSubmission
-            onSubmit={handleSubmit}
-            submitting={submitting}
-            pendingLabel={pendingLabel}
-            error={submitError}
-            onDismissError={() => setSubmitError(null)}
-          />
-        ) : (
-          <ChatPanel video={selectedVideo} />
-        )}
-      </main>
-    </div>
+        <main className="flex-1 flex flex-col min-w-0">
+          {showSubmission || !selectedVideo ? (
+            <VideoSubmission
+              onSubmit={handleSubmit}
+              submitting={submitting}
+              pendingLabel={pendingLabel}
+              error={submitError}
+              onDismissError={() => setSubmitError(null)}
+              onSelectDemo={handleSelectVideo}
+            />
+          ) : (
+            <ChatPanel video={selectedVideo} />
+          )}
+        </main>
+      </div>
+    </ErrorBoundary>
   );
 }

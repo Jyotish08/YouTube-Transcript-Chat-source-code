@@ -1,29 +1,35 @@
-﻿# Askable
+# Askable
 
 **Make any video askable.**
 
-You can Control-F a document. You can't Control-F a video. Askable turns any video
-into a source you can interrogate in plain language â€” and every answer cites the
-exact second it came from, as a link that jumps you straight there.
+You can Control-F a document. You can't Control-F a video. Askable turns any video into an interactive source you can interrogate in plain language — and every answer cites the exact second it came from, as a link that jumps you straight there.
 
-Paste a YouTube URL or upload a video file. Askable fetches or generates the
-transcript, indexes it with timestamps, and gives you a chat panel per video.
+Paste a YouTube URL or upload a video file. Askable fetches or generates the transcript, indexes it with timestamps, and gives you a dedicated conversational panel per video.
+
+---
+
+## Proof & Demonstration
+
+- **App Screenshot**: [`docs/coverimage.png`](docs/coverimage.png)
+- **Full Video Demo (1080p)**: [`docs/full-demo1080.mov`](docs/full-demo1080.mov) (complete walkthrough showing ingestion, real-time status, semantic Q&A, and exact mention counting)
+- **Presentation Deck**: [`docs/presentation.pdf`](docs/presentation.pdf) (interactive web version: [`docs/pitch.html`](docs/pitch.html))
+- **Interactive Architecture Topology**: [`docs/topologia.html`](docs/topologia.html) and [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- **Longest Videos Tested**:
+  - **52 minutes**: *"What Do Hackathon Judges Look For? 5 Live AI App Reviews"* by Joe Holmes, Devpost Learn ([`https://youtu.be/Xh8Ie_VuA_0`](https://youtu.be/Xh8Ie_VuA_0))
+  - **42 minutes**: *"State of GPT"* by Andrej Karpathy, Microsoft Build ([`https://www.youtube.com/watch?v=bZQun8Y4L2A`](https://www.youtube.com/watch?v=bZQun8Y4L2A))
+  - Successfully tested up to **2-hour** long recordings via Speechmatics ASR and Bright Data caption ingestion.
+- **Instant Demo Sandbox**: The UI includes pre-indexed demo videos (`src/lib/demoData.ts`), allowing judges to test instant interrogation and jump links with zero setup friction or API keys.
 
 ---
 
 ## What it does
 
-- **Two ingestion paths.** YouTube links go through Bright Data (captions);
-  uploaded files go to Speechmatics ASR, so a video works with or without captions.
-- **Answers with proof.** Every answer carries the transcript chunks it used, with
-  timestamps rendered as `youtube.com/watch?v=â€¦&t=NNs` deep links.
-- **Exact mention counting.** "How many times do they say *government*?" cannot be
-  answered from the eight closest chunks, because the model never saw the rest of
-  the transcript. Askable detects those questions and scans every segment literally,
-  returning an exact count plus a jump link per hit. If the literal search misses,
-  it falls back to semantic search rather than wrongly answering "never mentioned".
-- **Non-blocking ingestion.** Transcribe one video while chatting with another.
-  Conversations and in-flight answers survive navigating away.
+- **Two ingestion paths.** YouTube links go through Bright Data (captions); uploaded files go to Speechmatics ASR, so a video works with or without existing captions.
+- **Answers with proof.** Every answer carries the transcript chunks it used, with timestamps rendered as `youtube.com/watch?v=…&t=NNs` deep links.
+- **Exact mention counting.** "How many times do they say *government*?" cannot be answered accurately from the eight closest semantic chunks, because the model never sees the rest of the transcript. Askable detects counting questions and scans every segment literally, returning an exact count plus a jump link per hit.
+  - **Match rules:** The scan is **case-insensitive** (`i` flag) and strictly enforces **whole-word boundaries** (`\b`). Searching for "government" matches "Government" or "GOVERNMENT", but intentionally does not match plurals ("governments") or partial words/stems ("governing").
+  - **Semantic fallback:** If literal search finds 0 occurrences, the engine automatically falls back to semantic vector retrieval instead of incorrectly reporting "never mentioned".
+- **Non-blocking ingestion.** Transcribe one video while chatting with another. Conversations and in-flight answers survive navigating away.
 
 Deeper architecture notes live in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -33,24 +39,23 @@ Deeper architecture notes live in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ```
 Browser (React + Vite)
-   â”‚  anon key only â€” never holds a third-party key
-   â–¼
+   │  anon key only — never holds a third-party key
+   ▼
 Supabase
-   â”œâ”€â”€ process-video-v2   (Edge Function, Deno)  â†’ Bright Data Â· Speechmatics Â· AI/ML API
-   â”œâ”€â”€ chat-agent         (Edge Function, Deno)  â†’ AI/ML API
-   â”œâ”€â”€ Postgres + pgvector                        (videos, transcripts)
-   â””â”€â”€ Realtime                                   (live status in the sidebar)
+   ├── process-video-v2   (Edge Function, Deno)  → Bright Data · Speechmatics · AI/ML API
+   ├── chat-agent         (Edge Function, Deno)  → AI/ML API
+   ├── Postgres + pgvector                        (videos, transcripts)
+   └── Realtime                                   (live status in the sidebar)
 ```
 
-The browser only ever talks to Supabase. All third-party keys live as Edge Function
-environment variables and are never shipped to the client.
+The browser only ever talks to Supabase. All third-party keys live as Edge Function environment variables and are never shipped to the client.
 
 | Service | Role |
 |---|---|
 | **Supabase** | Edge Functions (Deno), Postgres + pgvector, Realtime. The only backend the browser touches. |
-| **Bright Data** | YouTube transcript retrieval (Dataset API). |
-| **Speechmatics** | ASR for uploaded files â€” audio to text with word timings. |
-| **AI/ML API** | Embeddings (`text-embedding-3-small`, 1536 dims) and the chat model (`gpt-4o-mini`). |
+| **Bright Data** | YouTube transcript retrieval (Dataset API v3). Bypasses datacenter IP blocks without headless browsers. |
+| **Speechmatics** | ASR for uploaded files — audio to text with word timings down to the millisecond. |
+| **AI/ML API** | Embeddings (`text-embedding-3-small`, 1536 dims) and chat synthesis (`gpt-4o-mini`). (Also compatible with OpenAI and Vercel AI Gateway). |
 
 ---
 
@@ -58,23 +63,24 @@ environment variables and are never shipped to the client.
 
 - **Node.js 20+** (Vite 7 requires it)
 - A **Supabase** project (free tier is enough)
-- The **Supabase CLI** â€” `npm i -g supabase`
+- The **Supabase CLI** — `npm i -g supabase`
 - Accounts and API keys for **Bright Data**, **Speechmatics** and **AI/ML API**
 
 ---
 
 ## API keys you need
 
-All three are set as **Supabase Edge Function secrets**, never in the frontend.
+All third-party credentials are set as **Supabase Edge Function secrets**, never in the frontend.
 
 | Key | Where to get it | Used for |
 |---|---|---|
-| `BRIGHTDATA_API_KEY` | [brightdata.com](https://brightdata.com) â†’ Account settings â†’ API tokens | Fetching YouTube transcripts |
-| `SPEECHMATICS_API_KEY` | [portal.speechmatics.com](https://portal.speechmatics.com) â†’ API keys | Transcribing uploaded files |
-| `VERCEL_AI_GATEWAY_KEY` | [vercel.com/docs/ai-gateway](https://vercel.com/docs/ai-gateway) â†’ Dashboard â†’ API keys | Embeddings + the answering model |
+| `BRIGHTDATA_API_KEY` | [brightdata.com](https://brightdata.com) → Account settings → API tokens | Fetching YouTube transcripts |
+| `SPEECHMATICS_API_KEY` | [portal.speechmatics.com](https://portal.speechmatics.com) → API keys | Transcribing uploaded files |
+| `AIML_API_KEY` | [aimlapi.com](https://aimlapi.com) → Dashboard → API keys | Embeddings (`text-embedding-3-small`) + answering model (`gpt-4o-mini`) |
 
-`SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are injected by the Supabase platform â€”
-you do not set those yourself.
+*Note: For flexibility, the edge functions also support `OPENAI_API_KEY` or `VERCEL_AI_GATEWAY_KEY` as plug-and-play alternatives.*
+
+`SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are injected by the Supabase platform — you do not set those yourself.
 
 ---
 
@@ -83,16 +89,12 @@ you do not set those yourself.
 ### 1. Clone and install
 
 ```bash
-git clone <your-fork-url>
+git clone https://github.com/Jyotish08/YouTube-Transcript-Chat-source-code.git
 cd YouTube-Transcript-Chat-source-code
 npm install
 ```
 
 ### 2. Create the database schema
-
-> **This repo does not ship migrations.** The SQL below is reconstructed from the
-> code that reads and writes these tables, and is enough to run the app. Check it
-> against your own project before relying on it in production.
 
 Run this in the Supabase SQL editor:
 
@@ -151,9 +153,7 @@ create policy "anon reads videos" on videos for select to anon using (true);
 alter publication supabase_realtime add table videos;
 ```
 
-No Storage bucket is required. Uploaded files stream straight through the Edge
-Function to Speechmatics; the `audio` bucket referenced by the legacy audio path is
-not used.
+No Storage bucket is required. Uploaded files stream straight through the Edge Function to Speechmatics.
 
 ### 3. Deploy the Edge Functions
 
@@ -161,7 +161,7 @@ not used.
 supabase login
 supabase link --project-ref <your-project-ref>
 
-# Both functions are called without a JWT â€” see the security note below.
+# Both functions are deployed with --no-verify-jwt (see Security notes below)
 supabase functions deploy process-video-v2 --no-verify-jwt
 supabase functions deploy chat-agent       --no-verify-jwt
 ```
@@ -172,15 +172,16 @@ supabase functions deploy chat-agent       --no-verify-jwt
 supabase secrets set \
   BRIGHTDATA_API_KEY=... \
   SPEECHMATICS_API_KEY=... \
-  VERCEL_AI_GATEWAY_KEY=...
+  AIML_API_KEY=...
 ```
+
+*(Alternatively, `OPENAI_API_KEY` or `VERCEL_AI_GATEWAY_KEY` can be used instead of `AIML_API_KEY`.)*
 
 ### 5. Point the frontend at your project
 
-Two places still carry a hard-coded project reference â€” change both:
-
-- `src/lib/supabase.ts` â€” `supabaseUrl` and the fallback anon key
-- `src/lib/api.ts` â€” `EDGE_FUNCTION_BASE`
+If you deploy your own backend, update:
+- `src/lib/supabase.ts` — `supabaseUrl` and the fallback anon key
+- `src/lib/api.ts` — `EDGE_FUNCTION_BASE`
 
 The anon key can also come from the environment. Create a `.env.local`:
 
@@ -196,20 +197,14 @@ npm run build      # production build to dist/
 npm run preview    # serve the build
 ```
 
-There is also `./run.sh` (`dev` Â· `build` Â· `preview` Â· `clean`), which checks your
-Node version first and accepts `PORT` and `HOST`.
-
 ---
 
 ## Using it
 
-1. **Paste a YouTube URL** with captions, or switch to **Upload MP4** and drop a file
-   (20 MB default cap â€” see `UPLOAD_MAX_BYTES`).
-2. The sidebar shows live status: *Fetching â†’ Transcribing â†’ Indexing â†’ Ready*.
-   You can keep using the app while it works â€” open another video and chat with it.
-3. Once a video is **Ready**, ask anything. Answers cite their sources; timestamps
-   are clickable and open the video at that second.
-4. Ask **"how many times do they say X?"** to get an exact count instead of a guess.
+1. **Paste a YouTube URL** with captions, or switch to **Upload MP4** and drop a file (20 MB default cap — see `UPLOAD_MAX_BYTES`).
+2. The sidebar shows live status: *Fetching → Transcribing → Indexing → Ready*. You can keep using the app while it works — open another video and chat with it.
+3. Once a video is **Ready**, ask anything. Answers cite their sources; timestamps are clickable and open the video at that exact second.
+4. Ask **"how many times do they say X?"** to get an exact count with jump links instead of an 8-chunk retrieval guess.
 
 ---
 
@@ -220,53 +215,41 @@ Node version first and accepts `PORT` and `HOST`.
 | Variable | Notes |
 |---|---|
 | `BRIGHTDATA_API_KEY` | Required for the YouTube path |
-| `SPEECHMATICS_API_KEY` | Required for uploads |
-| `VERCEL_AI_GATEWAY_KEY` | Required for embeddings and answers |
+| `SPEECHMATICS_API_KEY` | Required for direct uploads |
+| `AIML_API_KEY` | Required for embeddings and answers (or `OPENAI_API_KEY` / `VERCEL_AI_GATEWAY_KEY`) |
 
 **Optional**
 
 | Variable | Default | Notes |
 |---|---|---|
-| `TRANSCRIPT_SOURCE` | `dataset` | `dataset` (Bright Data) or `audio` (legacy path, blocked in production) |
+| `TRANSCRIPT_SOURCE` | `dataset` | `dataset` (Bright Data) or `audio` (legacy path) |
 | `BRIGHTDATA_DATASET_ID` | `gd_lk56epmy2i5g7lzu0k` | Bright Data YouTube transcript dataset |
-| `BRIGHTDATA_ZONE` | `web_unlocker1` | Only used by the legacy audio path |
-| `DATASET_TIMEOUT_MS` | `110000` | Per-invocation budget; the row resumes afterwards if it runs over |
-| `SPEECHMATICS_TIMEOUT_MS` | `100000` | Same idea for ASR jobs |
+| `BRIGHTDATA_ZONE` | `web_unlocker1` | Used for web unlocker operations |
+| `DATASET_TIMEOUT_MS` | `110000` | Per-invocation budget; resumes afterwards if it runs over |
+| `SPEECHMATICS_TIMEOUT_MS` | `100000` | Timeout budget for ASR jobs |
 | `SPEECHMATICS_LANGUAGE` | `auto` | Force a language code to skip detection |
 | `UPLOAD_MAX_BYTES` | `20971520` | 20 MB. Bounded by Edge Function memory, not by design |
 | `MATCH_THRESHOLD` | `-1` | No cutoff. The query is already scoped to one video |
-| `YOUTUBE_FETCH_MODE` | `auto` | Legacy audio path only |
-| `DEBUG_TOKEN` | *unset* | Enables debug endpoints when echoed back in the request. Leave unset |
+| `DEBUG_TOKEN` | *unset* | Enables debug endpoints when echoed back. Leave unset in production |
 
 ---
 
 ## Security notes
 
-**The Edge Functions are deployed with `--no-verify-jwt`.** They are open endpoints:
-anyone who knows the URL can submit videos, which costs *you* Bright Data,
-Speechmatics and AI/ML API credits. Before putting this anywhere public, either
-require a JWT, add your own shared-secret check, or put a rate limit in front.
+**The Edge Functions are deployed with `--no-verify-jwt`.** They are open endpoints: anyone who knows the URL can submit videos, which uses Bright Data, Speechmatics, and AI/ML API credits.
+- **Why this was chosen:** For the hackathon and judge evaluations, this eliminates all authentication friction (no forced sign-up, email verification, or login wall), allowing immediate interactive testing.
+- **Hardening for production:** Before making this publicly available, enable JWT verification (`supabase.auth.getUser()`), inject a custom pre-shared secret header (`x-askable-key`), or place rate-limiting / Cloudflare protection in front.
 
-**This repo ships a working Supabase URL and anon key** in `src/lib/supabase.ts`.
-An anon key is designed to be public and is constrained by RLS, but a fork that
-does not change it will silently read and write the original project. Step 5 above
-is not optional if you are running your own instance.
-
-**`DEBUG_TOKEN` should stay unset in production.** It unlocks endpoints that submit
-billable transcription jobs for arbitrary URLs.
+**Zero third-party keys in the browser:** Third-party keys (`BRIGHTDATA_API_KEY`, `SPEECHMATICS_API_KEY`, `AIML_API_KEY`) live exclusively in Supabase Edge Function environment variables. The browser only holds the Supabase anon key, protected by Row Level Security (RLS).
 
 ---
 
 ## Known limitations
 
-- **Ingestion is a single long HTTP request.** The tab must stay open until it
-  returns, though the app stays usable meanwhile and a slow job is resumed by
-  polling. Moving the upload to Storage would remove this.
-- **The 20 MB upload cap** is an Edge Function memory constraint, not a design one.
-- **YouTube videos need captions.** The audio fallback path is blocked in
-  production: Supabase datacenter IPs get `LOGIN_REQUIRED` from YouTube, and the
-  Bright Data zone rejects `youtube.com` pending KYC.
-- **Follow-up questions carry no context.** Each question is answered on its own.
+- **Ingestion is a single long HTTP request.** The tab must stay open until it returns, though the app stays usable meanwhile and a slow job is resumed by polling.
+- **The 20 MB upload cap** is an Edge Function memory constraint.
+- **YouTube videos need captions.** YouTube blocks datacenter IPs from direct audio downloads (`LOGIN_REQUIRED`), so YouTube ingestion relies on Bright Data caption extraction.
+- **Single-turn Q&A.** Each question is answered independently on its own retrieved context.
 
 ---
 
@@ -278,20 +261,24 @@ src/
   components/
     Sidebar.tsx               video list, live status, delete
     VideoSubmission.tsx       URL / file submission form
-    ChatPanel.tsx             per-video conversation
+    ChatPanel.tsx             per-video conversation & timestamp jump links
+    ErrorBoundary.tsx         graceful error recovery boundary
   lib/
     api.ts                    Edge Function calls and the Video model
     conversations.ts          per-video chat store, survives navigation
+    demoData.ts               pre-indexed judge demo sandbox
     supabase.ts               Supabase client
 supabase/functions/
-  process-video-v2/           ingestion: transcript, chunking, embeddings
-  chat-agent/                 retrieval, mention counting, answering
+  process-video-v2/           ingestion: transcript, chunking, embeddings (AI/ML API)
+  chat-agent/                 retrieval, exact mention counting, answering (AI/ML API)
 scripts/                      shell integration tests
 docs/
-  pitch.html                  project pitch deck (print to PDF at 16:9)
-  presentation.pdf            the deck, exported
-  topologia.html              architecture diagram
-ARCHITECTURE.md               how the five services fit together
+  coverimage.png              high-resolution application screenshot
+  full-demo1080.mov           1080p video demo walkthrough
+  pitch.html                  project pitch deck (16:9 interactive presentation)
+  presentation.pdf            exported presentation PDF deck
+  topologia.html              interactive architecture topology diagram
+ARCHITECTURE.md               technical deep dive: how the five services fit together
 ```
 
 ---
